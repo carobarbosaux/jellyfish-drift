@@ -82,6 +82,22 @@ button {
 button:hover { border-color: #a8d8ea; background: rgba(168, 216, 234, 0.12); color: #d6eef7; }
 button.active { background: rgba(168, 216, 234, 0.18); color: #d6eef7; border-color: #a8d8ea; }
 
+#page-title {
+  position: fixed;
+  top: 44px;
+  left: 0; right: 0;
+  text-align: center;
+  font: italic 300 42px/1.2 "Cormorant Garamond", Georgia, serif;
+  color: rgba(218, 242, 252, 0.60);
+  pointer-events: none;
+  z-index: 5;
+  letter-spacing: 0.04em;
+  padding: 12px 0 0;
+}
+@media (max-width: 480px) {
+  #page-title { font-size: 26px; top: 44px; padding: 8px 0 0; }
+}
+
 #draw-toolbar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -144,8 +160,10 @@ button.active { background: rgba(168, 216, 234, 0.18); color: #d6eef7; border-co
 
 @media (max-width: 480px) {
   .t-hint { display: none; }
-  #toolbar { padding: 6px 12px; gap: 6px; }
+  #toolbar { padding: 6px 8px; gap: 6px; }
   button { padding: 4px 10px; }
+  #draw-toolbar { padding: 10px 8px; gap: 8px; }
+  footer { padding: 10px 8px !important; }
   /* Scale draggable jellyfish down on mobile */
   .sh svg { transform: scale(0.55); transform-origin: top left; }
   .sh { width: 99px !important; height: 198px !important; }
@@ -297,14 +315,6 @@ canvas {
 <div id="toolbar">
   <span class="t-label">Jellyfish Drift</span>
   <span class="t-hint" id="hint">drag shapes · draw strokes · watch text reflow</span>
-  <button id="btn-sound" class="nav-btn" title="Toggle ocean sound">
-    <svg id="icon-sound" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-      <line x1="23" y1="9" x2="17" y2="15"></line>
-      <line x1="17" y1="9" x2="23" y2="15"></line>
-    </svg>
-    Sound
-  </button>
   <button id="btn-draw-toggle" class="nav-btn" title="Toggle draw mode">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 20h9"></path>
@@ -323,6 +333,8 @@ canvas {
   <span class="t-sep"></span>
   <button id="btn-clear">Clear</button>
 </div>
+
+<h1 id="page-title">jellyfish drift</h1>
 
 <div id="stage">
   <div id="wrap">
@@ -649,11 +661,12 @@ canvas {
   const FS   = isMobile ? 11 : 14;   // font size px
   const LH   = isMobile ? 20 : 28;   // line height px
   const FONT       = `${FS}px Georgia, "Times New Roman", serif`;
-  const TITLE_FONT = `italic 300 ${isMobile ? 26 : 42}px "Cormorant Garamond", Georgia, serif`;
-  const PAD  = 18;   // clearance around shapes
+  const PAD  = 2;   // clearance around shapes
   const SPAD = 5;    // clearance around drawn strokes
-  const TITLE_H = isMobile ? 44 : 68; // space reserved for title above body text
-  const CT   = (isMobile ? 40 : 62) + TITLE_H;   // column top (below title)
+  // CT: canvas y where body text starts (below the fixed HTML title)
+  // HTML title is at viewport top 44px + padding 12px + ~1.2× font-size
+  // canvas starts just below toolbar (~44px), so subtract that offset
+  const CT   = isMobile ? 80 : 110;
   // W, CL1, CR1 are dynamic — updated on each resize
   let W = wrap.offsetWidth || window.innerWidth;
   let CL1 = 48, CR1 = W - 48;
@@ -714,17 +727,17 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   }
 
   let prevW = 0;
+  let layoutReady = false; // set after first resize() so swimTick doesn't render early
 
   function resize() {
     const newW = wrap.offsetWidth || window.innerWidth;
-    if (prevW && prevW !== newW) {
-      // scale shape positions proportionally to new width
-      const ratio = newW / prevW;
-      shEls.forEach(el => {
-        el.style.left = (el.offsetLeft * ratio) + 'px';
-        el.style.top  = (el.offsetTop  * ratio) + 'px';
-      });
-    }
+    // Always normalize positions to px (converts % or mixed units) and
+    // scale proportionally when the width has changed.
+    const ratio = (prevW && prevW !== newW) ? newW / prevW : 1;
+    shEls.forEach(el => {
+      el.style.left = (el.offsetLeft * ratio) + 'px';
+      el.style.top  = (el.offsetTop  * ratio) + 'px';
+    });
     W    = newW;
     CL1  = Math.round(Math.min(W * 0.055, 72));
     CR1  = W - CL1;
@@ -748,6 +761,7 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     tCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
     dCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
     redrawStrokes();
+    layoutReady = true;
     render();
   }
 
@@ -814,21 +828,18 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       }];
     }
 
-    const svg  = el.querySelector('svg');
-    const svgW = parseFloat(svg.getAttribute('width'))  || el.offsetWidth;
-    const svgH = parseFloat(svg.getAttribute('height')) || el.offsetHeight;
     const elRect  = el.getBoundingClientRect();
     const wrapRect = wrap.getBoundingClientRect();
     const elX  = elRect.left - wrapRect.left;
     const elY  = elRect.top  - wrapRect.top;
-    // SVG viewBox is "0 0 360 720", element is e.g. 180×360 → scale 0.5
-    const scaleX = svgW / 360;
-    const scaleY = svgH / 720;
+    // Use the actual rendered (CSS-transformed) dimensions to map viewBox coords
+    const scaleX = elRect.width  / 360;
+    const scaleY = elRect.height / 720;
 
     // Sample the bell outline in viewBox space
     const total  = bellPath.getTotalLength();
     const STEPS  = 120;
-    // [y_px, lx_px, rx_px] per row band, keyed by row
+    // [lx, rx, maxY] per row band
     const rowMap = new Map();
 
     for (let i = 0; i <= STEPS; i++) {
@@ -836,34 +847,45 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       const xPx = elX + pt.x * scaleX;
       const yPx = elY + pt.y * scaleY;
       const ry  = Math.floor(yPx / LH) * LH;
-      const cur = rowMap.get(ry) || [Infinity, -Infinity];
+      const cur = rowMap.get(ry) || [Infinity, -Infinity, ry];
       if (xPx < cur[0]) cur[0] = xPx;
       if (xPx > cur[1]) cur[1] = xPx;
+      if (yPx > cur[2]) cur[2] = yPx;
       rowMap.set(ry, cur);
     }
 
-    // Sample tentacles and arms per row the same way as the bell
-    const tentPaths = Array.from(el.querySelectorAll('.jtent, .jarm'));
-    for (const path of tentPaths) {
-      const tTotal = path.getTotalLength();
-      if (tTotal === 0) continue;
-      const tSteps = Math.max(60, Math.round(tTotal / 4));
-      for (let i = 0; i <= tSteps; i++) {
-        const pt  = path.getPointAtLength((i / tSteps) * tTotal);
+    const obs = [];
+    rowMap.forEach(([lx, rx, maxY], ry) => {
+      if (lx <= rx) {
+        // obstacle height = actual bell extent in this row + PAD, capped at LH
+        const h = Math.min(maxY - ry + PAD, LH);
+        obs.push({ x: lx - PAD, y: ry, w: (rx - lx) + PAD * 2, h });
+      }
+    });
+
+    // Also add tentacle obstacles — merge all .jtent paths into unified per-row slabs
+    const tentPaths = el.querySelectorAll('.jtent');
+    const TPAD = 6; // wider clearance so text doesn't thread between thin tentacles
+    const tentRowMap = new Map();
+    tentPaths.forEach(tent => {
+      const tentLen = tent.getTotalLength();
+      const TSTEPS = 80;
+      for (let i = 0; i <= TSTEPS; i++) {
+        const pt = tent.getPointAtLength((i / TSTEPS) * tentLen);
         const xPx = elX + pt.x * scaleX;
         const yPx = elY + pt.y * scaleY;
         const ry  = Math.floor(yPx / LH) * LH;
-        const cur = rowMap.get(ry) || [Infinity, -Infinity];
+        const cur = tentRowMap.get(ry) || [Infinity, -Infinity, ry];
         if (xPx < cur[0]) cur[0] = xPx;
         if (xPx > cur[1]) cur[1] = xPx;
-        rowMap.set(ry, cur);
+        if (yPx > cur[2]) cur[2] = yPx;
+        tentRowMap.set(ry, cur);
       }
-    }
-
-    const obs = [];
-    rowMap.forEach(([lx, rx], ry) => {
+    });
+    tentRowMap.forEach(([lx, rx, maxY], ry) => {
       if (lx <= rx) {
-        obs.push({ x: lx - PAD, y: ry, w: (rx - lx) + PAD * 2, h: LH });
+        const h = Math.min(maxY - ry + TPAD, LH);
+        obs.push({ x: lx - TPAD, y: ry, w: (rx - lx) + TPAD * 2, h });
       }
     });
 
@@ -873,8 +895,6 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   // ─── obstacles ────────────────────────────────────────────────────────────
   function getObstacles() {
     const obs = [];
-    // protect the title area — body text must never reflow into these rows
-    obs.push({ x: CL1, y: 0, w: CR1 - CL1, h: CT });
     shEls.forEach(el => {
       for (const o of shapeToObs(el)) obs.push(o);
     });
@@ -924,12 +944,6 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     }
 
     tCtx.clearRect(0, 0, W, H);
-
-    // draw title
-    tCtx.font         = TITLE_FONT;
-    tCtx.fillStyle    = 'rgba(218, 242, 252, 0.60)';
-    tCtx.textBaseline = 'alphabetic';
-    tCtx.fillText('jellyfish drift', CL1, isMobile ? 40 + 26 : 62 + 44);
 
     tCtx.font         = FONT;
     tCtx.fillStyle    = '#c8e8f4';
@@ -990,16 +1004,14 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     const svgEl = el.querySelector('svg');
     const elW = svgEl ? parseFloat(svgEl.getAttribute('width'))  || el.offsetWidth  : el.offsetWidth;
     const elH = svgEl ? parseFloat(svgEl.getAttribute('height')) || el.offsetHeight : el.offsetHeight;
-    const r = el.getBoundingClientRect();
-    const startX = r.left;
-    const startY = r.top;
     return {
       el, elW, elH,
-      // Current logical position (persisted between frames)
-      x: startX,
-      y: startY,
-      prevX: startX,
-      prevY: startY,
+      // Positions initialized to -1 as sentinel; swimTick reads from DOM on first frame
+      // so it picks up the px values set by resize() rather than unresolved % positions.
+      x: -1,
+      y: -1,
+      prevX: -1,
+      prevY: -1,
       // Vertical velocity (px/ms) — positive = downward
       vy: 0,
       // Horizontal velocity (px/ms)
@@ -1030,6 +1042,15 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     swimmers.forEach(sw => {
       if (sw.isDragging) return;
 
+      // Sync position from DOM on first frame after layout is ready.
+      // resize() normalizes % positions to px before setting layoutReady.
+      if (sw.x === -1) {
+        if (!layoutReady) return;
+        const r = sw.el.getBoundingClientRect();
+        sw.x = sw.prevX = r.left;
+        sw.y = sw.prevY = r.top;
+      }
+
       const maxW = window.innerWidth;
       const maxH = window.innerHeight;
 
@@ -1044,9 +1065,11 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
       // ── Soft boundary bounce (full screen) ─────────────────────────────
       const margin = 20;
+      const titleEl2 = document.getElementById('page-title');
+      const titleMinY = titleEl2 ? titleEl2.getBoundingClientRect().bottom + margin : margin;
       if (sw.x < margin)                 { sw.x = margin;                 sw.vx =  Math.abs(sw.vx) * 0.4; }
       if (sw.x > maxW - sw.elW - margin) { sw.x = maxW - sw.elW - margin; sw.vx = -Math.abs(sw.vx) * 0.4; }
-      if (sw.y < margin)                 { sw.y = margin;                 sw.vy =  Math.abs(sw.vy) * 0.3; }
+      if (sw.y < titleMinY)              { sw.y = titleMinY;              sw.vy =  Math.abs(sw.vy) * 0.3; }
       if (sw.y > maxH - sw.elH - margin) { sw.y = maxH - sw.elH - margin; sw.vy = -Math.abs(sw.vy) * 0.35; }
 
       const nx = Math.round(sw.x * 10) / 10;
@@ -1060,7 +1083,28 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       sw.el.style.top  = ny + 'px';
     });
 
-    if (needsRender) render();
+    // ── Separation: push overlapping jellyfish apart ───────────────────────
+    for (let i = 0; i < swimmers.length; i++) {
+      for (let j = i + 1; j < swimmers.length; j++) {
+        const a = swimmers[i];
+        const b = swimmers[j];
+        const ax = a.x + a.elW / 2, ay = a.y + a.elH / 2;
+        const bx = b.x + b.elW / 2, by = b.y + b.elH / 2;
+        const minDist = (a.elW + b.elW) / 2 * 0.85;
+        const dx = bx - ax, dy = by - ay;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+        if (dist < minDist) {
+          const overlap = (minDist - dist) / minDist;
+          const force = overlap * 1.4;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          if (!a.isDragging) { a.vx -= fx; a.vy -= fy; }
+          if (!b.isDragging) { b.vx += fx; b.vy += fy; }
+        }
+      }
+    }
+
+    if (needsRender && layoutReady) render();
     requestAnimationFrame(swimTick);
   }
   document.fonts.load('italic 300 42px "Cormorant Garamond"').then(() => {
@@ -1290,21 +1334,24 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
   // ─── init ─────────────────────────────────────────────────────────────────
   window.addEventListener('resize', resize);
-  resize();
 
   // ─── mobile: spread draggable jellyfish across the full viewport ───────────
+  // Runs before the initial resize/render so obstacle positions are correct.
   if (isMobile) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const jellyW = 99;  // scaled CSS width (180 * 0.55)
     const jellyH = 198; // scaled CSS height (360 * 0.55)
-    // Divide viewport into vertical zones so each jellyfish occupies its own strip
+    const toolbarH = document.getElementById('toolbar').offsetHeight;
+    const textTop = toolbarH + CT; // viewport-relative y where body text begins
+    const textH   = vh - toolbarH; // usable height below toolbar
+    // Alternate left/right; offset from textTop so jellyfish sit inside the text flow
     const mobilePositions = [
-      { left: vw * 0.05,              top: vh * 0.04 },
-      { left: vw * 0.55,              top: vh * 0.18 },
-      { left: vw * 0.10,              top: vh * 0.38 },
-      { left: vw * 0.52,              top: vh * 0.55 },
-      { left: vw * 0.15,              top: vh * 0.72 },
+      { left: vw * 0.02,  top: textTop - 60 },
+      { left: vw - jellyW - vw * 0.02, top: textTop + textH * 0.18 },
+      { left: vw * 0.02,  top: textTop + textH * 0.38 },
+      { left: vw - jellyW - vw * 0.02, top: textTop + textH * 0.56 },
+      { left: vw * 0.02,  top: textTop + textH * 0.74 },
     ];
     shEls.forEach((el, i) => {
       const pos = mobilePositions[i] || mobilePositions[0];
@@ -1323,6 +1370,11 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       sw.elH = jellyH;
     });
   }
+
+  // Double-rAF: first frame lets the browser resolve % positions on fixed
+  // elements (body transform makes body the containing block); second frame
+  // reads the now-correct getBoundingClientRect() values for obstacle layout.
+  requestAnimationFrame(() => requestAnimationFrame(resize));
 
   // ─── ambient drifting jellyfish ───────────────────────────────────────────
   // Uses the exact same SVG as the draggable instances, scaled down, drifting
@@ -1355,8 +1407,12 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       // Random start position — full viewport including sides
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const toolbarEl = document.getElementById('toolbar');
+      const titleEl = document.getElementById('page-title');
+      const titleBottom = titleEl ? titleEl.getBoundingClientRect().bottom : 100;
+      const minY = titleBottom + 20;
       const startX = rnd(-w * 0.3, vw - w * 0.7);
-      const startY = rnd(vh * 0.05, vh * 0.95);
+      const startY = rnd(Math.max(vh * 0.25, minY), vh * 0.95);
 
       // Build waypoints: upward drift + wider lateral sway across full screen
       const steps = 8;
@@ -1367,6 +1423,7 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
         waypoints.push({ x: cx, y: cy });
         cx += rnd(mobile ? -90 : -160, mobile ? 90 : 160); // lateral sweep
         cy -= rnd(mobile ? 25 : 40, mobile ? 80 : 140); // drift upward
+        cy = Math.max(cy, minY - h); // don't drift above title area
       }
 
       const maxOp = mobile ? rnd(0.14, 0.32) : rnd(0.06, 0.18);
@@ -1571,194 +1628,6 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
 })();
 
-// Ocean sound
-(function () {
-  let ctx = null, masterGain = null, playing = false;
-  let pluckTimer = null;
-
-  function buildOcean() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Master lowpass — deep underwater muffling
-    const lpf = ctx.createBiquadFilter();
-    lpf.type = 'lowpass';
-    lpf.frequency.value = 1400;
-    lpf.Q.value = 0.5;
-
-    // Reverb via convolver — simulate large underwater space
-    const convolver = ctx.createConvolver();
-    const irLen = ctx.sampleRate * 4;
-    const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = irBuf.getChannelData(ch);
-      for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.8);
-    }
-    convolver.buffer = irBuf;
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.38;
-
-    masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0, ctx.currentTime);
-
-    lpf.connect(convolver);
-    convolver.connect(reverbGain);
-    reverbGain.connect(masterGain);
-    lpf.connect(masterGain);
-    masterGain.connect(ctx.destination);
-
-    // ── Very soft distant hum — barely-there subsonic presence ────────────
-    // Not waves, just the deep ocean's own resonance
-    [36.7, 55, 73.4].forEach((hz, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = hz;
-
-      // Imperceptibly slow pitch wander
-      const wander = ctx.createOscillator();
-      wander.type = 'sine';
-      wander.frequency.value = 0.007 + i * 0.004;
-      const wanderGain = ctx.createGain();
-      wanderGain.gain.value = hz * 0.006;
-      wander.connect(wanderGain);
-      wanderGain.connect(osc.frequency);
-      wander.start();
-
-      const g = ctx.createGain();
-      g.gain.value = [0.10, 0.055, 0.03][i];
-      osc.connect(g);
-      g.connect(lpf);
-      osc.start();
-    });
-
-    // ── Slow breathing pads — calm Fm-like tones, very long cycle ─────────
-    // C minor pentatonic in low register: C3 Eb3 F3 G3 Bb3
-    const padFreqs = [130.8, 155.6, 174.6, 196.0, 233.1];
-    padFreqs.forEach((hz, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = hz;
-
-      // Each pad breathes on its own very slow cycle — no synchrony
-      const breathLfo = ctx.createOscillator();
-      breathLfo.type = 'sine';
-      breathLfo.frequency.value = 0.018 + i * 0.007;
-      const breathGain = ctx.createGain();
-      breathGain.gain.value = 0.028;
-      const breathBias = ctx.createGain();
-      breathBias.gain.value = 0.030;
-      breathLfo.connect(breathGain);
-      breathGain.connect(breathBias.gain);
-      breathLfo.start();
-
-      // Very slow pitch float — like sound refracted through deep water
-      const pitchLfo = ctx.createOscillator();
-      pitchLfo.type = 'sine';
-      pitchLfo.frequency.value = 0.011 + i * 0.009;
-      const pitchLfoGain = ctx.createGain();
-      pitchLfoGain.gain.value = hz * 0.003;
-      pitchLfo.connect(pitchLfoGain);
-      pitchLfoGain.connect(osc.frequency);
-      pitchLfo.start();
-
-      osc.connect(breathBias);
-      breathBias.connect(lpf);
-      osc.start();
-    });
-
-    // ── Upper harmonic shimmer — very quiet, airy, bioluminescent feel ────
-    const shimmerFreqs = [392.0, 523.25, 659.25, 783.99];
-    shimmerFreqs.forEach((hz, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = hz;
-
-      const ampLfo = ctx.createOscillator();
-      ampLfo.type = 'sine';
-      ampLfo.frequency.value = 0.025 + i * 0.013;
-      const ampLfoGain = ctx.createGain();
-      ampLfoGain.gain.value = 0.010;
-      const ampBias = ctx.createGain();
-      ampBias.gain.value = 0.012;
-      ampLfo.connect(ampLfoGain);
-      ampLfoGain.connect(ampBias.gain);
-      ampLfo.start();
-
-      osc.connect(ampBias);
-      ampBias.connect(lpf);
-      osc.start();
-    });
-  }
-
-  // ── Soft water-drop pluck — gentle sporadic accent ─────────────────────
-  // Uses a short sine burst with fast attack / long exponential decay
-  function pingPluck() {
-    if (!ctx || !playing) return;
-    const t = ctx.currentTime;
-    // Pentatonic tones: C4 Eb4 F4 G4 Bb4
-    const notes = [261.63, 311.13, 349.23, 392.0, 466.16];
-    const baseFreq = notes[Math.floor(Math.random() * notes.length)];
-
-    // Fundamental + one soft octave partial
-    [baseFreq, baseFreq * 2].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-
-      const env = ctx.createGain();
-      env.gain.setValueAtTime(0, t);
-      env.gain.linearRampToValueAtTime(0.040 / (i + 1), t + 0.003);
-      env.gain.exponentialRampToValueAtTime(0.0001, t + 4.5 - i * 0.5);
-
-      osc.connect(env);
-      env.connect(masterGain);
-      osc.start(t);
-      osc.stop(t + 5.0);
-    });
-
-    // Next pluck — slow and irregular, 12–30 seconds
-    const delay = 12000 + Math.random() * 18000;
-    pluckTimer = setTimeout(pingPluck, delay);
-  }
-
-  function fadeIn() {
-    masterGain.gain.cancelScheduledValues(ctx.currentTime);
-    masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime);
-    masterGain.gain.linearRampToValueAtTime(0.72, ctx.currentTime + 4.0);
-    // First pluck after a moment of ambient settling
-    pluckTimer = setTimeout(pingPluck, 6000 + Math.random() * 6000);
-  }
-
-  function fadeOut(cb) {
-    masterGain.gain.cancelScheduledValues(ctx.currentTime);
-    masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime);
-    masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.8);
-    clearTimeout(pluckTimer);
-    setTimeout(cb, 1900);
-  }
-
-  const btn = document.getElementById('btn-sound');
-
-  const iconMuted = `<svg id="icon-sound" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
-  const iconOn = `<svg id="icon-sound" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
-
-  btn.addEventListener('click', () => {
-    if (!playing) {
-      if (!ctx) buildOcean();
-      if (ctx.state === 'suspended') ctx.resume();
-      fadeIn();
-      playing = true;
-      btn.innerHTML = iconOn + ' Sound';
-      btn.classList.add('active');
-    } else {
-      fadeOut(() => {
-        if (ctx) ctx.suspend();
-      });
-      playing = false;
-      btn.innerHTML = iconMuted + ' Sound';
-      btn.classList.remove('active');
-    }
-  });
-})();
 
 </script>
 
