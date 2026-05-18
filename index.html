@@ -9,9 +9,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,300&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { height: 100%; background: #050d14; }
+html {
+  height: 100%;
+  height: -webkit-fill-available;
+  background: #050d14;
+}
 body {
   height: 100%;
+  height: -webkit-fill-available;
   overflow: hidden;
   background: linear-gradient(180deg, #0a1f2e 0%, #0d2d42 30%, #0f3a52 60%, #123f5a 100%);
   background-attachment: fixed;
@@ -22,6 +27,21 @@ body {
   margin: 0 auto;
   box-shadow: 0 0 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(100,180,220,0.06);
   transform: translateZ(0);
+}
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari: background-attachment: fixed is broken, use a pseudo-element instead */
+  body {
+    background: none;
+    position: relative;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(180deg, #0a1f2e 0%, #0d2d42 30%, #0f3a52 60%, #123f5a 100%);
+    z-index: -1;
+    pointer-events: none;
+  }
 }
 
 #toolbar {
@@ -126,16 +146,18 @@ button.active { background: rgba(168, 216, 234, 0.18); color: #d6eef7; border-co
   .t-hint { display: none; }
   #toolbar { padding: 6px 12px; gap: 6px; }
   button { padding: 4px 10px; }
-  .jelly svg { transform: scale(0.2); transform-origin: top left; }
+  /* Scale draggable jellyfish down on mobile */
+  .sh svg { transform: scale(0.55); transform-origin: top left; }
+  .sh { width: 99px !important; height: 198px !important; }
 }
 
 #stage {
   flex: 1;
+  min-height: 0;
   position: relative;
   display: flex;
   justify-content: center;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 #wrap {
@@ -623,14 +645,15 @@ canvas {
   const shEls = Array.from(document.querySelectorAll('.sh'));
 
   // ─── constants ────────────────────────────────────────────────────────────
-  const FONT       = '14px Georgia, "Times New Roman", serif';
-  const TITLE_FONT = 'italic 300 42px "Cormorant Garamond", Georgia, serif';
-  const FS   = 14;   // font size px
-  const LH   = 28;   // line height px
+  const isMobile = window.innerWidth <= 480;
+  const FS   = isMobile ? 11 : 14;   // font size px
+  const LH   = isMobile ? 20 : 28;   // line height px
+  const FONT       = `${FS}px Georgia, "Times New Roman", serif`;
+  const TITLE_FONT = `italic 300 ${isMobile ? 26 : 42}px "Cormorant Garamond", Georgia, serif`;
   const PAD  = 18;   // clearance around shapes
   const SPAD = 5;    // clearance around drawn strokes
-  const TITLE_H = 68; // space reserved for title above body text
-  const CT   = 62 + TITLE_H;   // column top (below title)
+  const TITLE_H = isMobile ? 44 : 68; // space reserved for title above body text
+  const CT   = (isMobile ? 40 : 62) + TITLE_H;   // column top (below title)
   // W, CL1, CR1 are dynamic — updated on each resize
   let W = wrap.offsetWidth || window.innerWidth;
   let CL1 = 48, CR1 = W - 48;
@@ -850,6 +873,8 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   // ─── obstacles ────────────────────────────────────────────────────────────
   function getObstacles() {
     const obs = [];
+    // protect the title area — body text must never reflow into these rows
+    obs.push({ x: CL1, y: 0, w: CR1 - CL1, h: CT });
     shEls.forEach(el => {
       for (const o of shapeToObs(el)) obs.push(o);
     });
@@ -883,10 +908,13 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   function render() {
     const obs  = getObstacles();
 
-    // expand canvas if text needs more room
+    // expand canvas if text needs more room (clamped on mobile to prevent scroll)
     const needed = measureFullHeight(obs);
-    if (needed > H) {
-      H = needed;
+    const toolbarH2 = document.getElementById('toolbar').offsetHeight;
+    const maxH = isMobile ? window.innerHeight - toolbarH2 : Infinity;
+    const targetH = Math.min(needed, maxH);
+    if (targetH > H) {
+      H = targetH;
       wrap.style.height = H + 'px';
       setCanvasSize(tc, W, H);
       setCanvasSize(dc, W, H);
@@ -901,7 +929,7 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     tCtx.font         = TITLE_FONT;
     tCtx.fillStyle    = 'rgba(218, 242, 252, 0.60)';
     tCtx.textBaseline = 'alphabetic';
-    tCtx.fillText('jellyfish drift', CL1, 62 + 44);
+    tCtx.fillText('jellyfish drift', CL1, isMobile ? 40 + 26 : 62 + 44);
 
     tCtx.font         = FONT;
     tCtx.fillStyle    = '#c8e8f4';
@@ -980,11 +1008,11 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       phaseOffset: i * (BELL_PERIOD / shEls.length) + Math.random() * 800,
       // 2D drift oscillators — horizontal and vertical, independent phases
       driftPhase:  Math.random() * Math.PI * 2,
-      driftSpeed:  0.000060 + Math.random() * 0.000035,
-      driftAmp:    window.innerWidth  * (0.35 + Math.random() * 0.20),
+      driftSpeed:  0.000110 + Math.random() * 0.000060,
+      driftAmp:    window.innerWidth  * (0.45 + Math.random() * 0.25),
       vDriftPhase: Math.random() * Math.PI * 2,
-      vDriftSpeed: 0.000040 + Math.random() * 0.000025, // slower vertical oscillation
-      vDriftAmp:   window.innerHeight * (0.30 + Math.random() * 0.20), // tall vertical range
+      vDriftSpeed: 0.000075 + Math.random() * 0.000045, // slower vertical oscillation
+      vDriftAmp:   window.innerHeight * (0.40 + Math.random() * 0.25), // tall vertical range
       isDragging: false,
     };
   });
@@ -1008,8 +1036,8 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       // ── 2D oscillator drift — horizontal and vertical ──────────────────
       const targetVx = Math.sin(now * sw.driftSpeed  + sw.driftPhase)  * sw.driftAmp  * sw.driftSpeed;
       const targetVy = Math.sin(now * sw.vDriftSpeed + sw.vDriftPhase) * sw.vDriftAmp * sw.vDriftSpeed;
-      sw.vx += (targetVx - sw.vx) * 0.025;
-      sw.vy += (targetVy - sw.vy) * 0.020; // slightly slower vertical response
+      sw.vx += (targetVx - sw.vx) * 0.040;
+      sw.vy += (targetVy - sw.vy) * 0.032; // slightly slower vertical response
 
       sw.x += sw.vx * dt;
       sw.y += sw.vy * dt;
@@ -1264,6 +1292,38 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   window.addEventListener('resize', resize);
   resize();
 
+  // ─── mobile: spread draggable jellyfish across the full viewport ───────────
+  if (isMobile) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const jellyW = 99;  // scaled CSS width (180 * 0.55)
+    const jellyH = 198; // scaled CSS height (360 * 0.55)
+    // Divide viewport into vertical zones so each jellyfish occupies its own strip
+    const mobilePositions = [
+      { left: vw * 0.05,              top: vh * 0.04 },
+      { left: vw * 0.55,              top: vh * 0.18 },
+      { left: vw * 0.10,              top: vh * 0.38 },
+      { left: vw * 0.52,              top: vh * 0.55 },
+      { left: vw * 0.15,              top: vh * 0.72 },
+    ];
+    shEls.forEach((el, i) => {
+      const pos = mobilePositions[i] || mobilePositions[0];
+      // Clamp so jellyfish don't exceed screen bounds
+      const x = Math.min(Math.max(pos.left, 0), vw - jellyW);
+      const y = Math.min(Math.max(pos.top,  0), vh - jellyH);
+      el.style.left = x + 'px';
+      el.style.top  = y + 'px';
+    });
+    // Update swimmer records to match new positions and scaled dimensions
+    swimmers.forEach((sw, i) => {
+      const pos = mobilePositions[i] || mobilePositions[0];
+      sw.x = sw.prevX = Math.min(Math.max(pos.left, 0), vw - jellyW);
+      sw.y = sw.prevY = Math.min(Math.max(pos.top,  0), vh - jellyH);
+      sw.elW = jellyW;
+      sw.elH = jellyH;
+    });
+  }
+
   // ─── ambient drifting jellyfish ───────────────────────────────────────────
   // Uses the exact same SVG as the draggable instances, scaled down, drifting
   // softly across the page with JS-driven position steps + CSS fade animation.
@@ -1288,7 +1348,8 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
       el.className = 'jelly';
 
       // Size: scale the 360×720 viewBox to a random display size
-      const w = rnd(60, 160);
+      const mobile = window.innerWidth <= 480;
+      const w = mobile ? rnd(28, 65) : rnd(60, 160);
       const h = w * 2; // 360:720 = 1:2
 
       // Random start position — full viewport including sides
@@ -1299,16 +1360,16 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
       // Build waypoints: upward drift + wider lateral sway across full screen
       const steps = 8;
-      const totalDur = rnd(14, 28) * 1000; // ms — fluid drift speed
+      const totalDur = rnd(mobile ? 9 : 14, mobile ? 18 : 28) * 1000; // ms — fluid drift speed
       const waypoints = [];
       let cx = startX, cy = startY;
       for (let s = 0; s <= steps; s++) {
         waypoints.push({ x: cx, y: cy });
-        cx += rnd(-160, 160); // wider lateral sweep
-        cy -= rnd(40, 140); // drift upward
+        cx += rnd(mobile ? -90 : -160, mobile ? 90 : 160); // lateral sweep
+        cy -= rnd(mobile ? 25 : 40, mobile ? 80 : 140); // drift upward
       }
 
-      const maxOp = rnd(0.06, 0.18);
+      const maxOp = mobile ? rnd(0.14, 0.32) : rnd(0.06, 0.18);
 
       // Build SVG with unique IDs
       const svgInner = INNER_TEMPLATE.replace(/\bid="([^"]+)"/g, (_, old) => `id="${id}-${old}"`);
