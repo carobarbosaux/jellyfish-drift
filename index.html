@@ -656,6 +656,14 @@ canvas {
   const dCtx  = dc.getContext('2d');
   const shEls = Array.from(document.querySelectorAll('.sh'));
 
+  // Cache shape obstacles per element — keyed by element, stores {obs, x, y}
+  // Invalidated when the element moves more than OBS_THRESH px
+  const OBS_THRESH = 2;
+  const obsCache = new Map();
+
+  // titleMinY is only meaningful after layout; updated in resize()
+  let titleMinY = 100;
+
   // ─── constants ────────────────────────────────────────────────────────────
   const isMobile = window.innerWidth <= 480;
   const FS   = isMobile ? 11 : 14;   // font size px
@@ -742,6 +750,13 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     CL1  = Math.round(Math.min(W * 0.055, 72));
     CR1  = W - CL1;
     prevW = W;
+
+    // Invalidate shape obstacle cache on resize (positions and scales change)
+    obsCache.clear();
+
+    // Cache titleMinY — used every frame in swimTick
+    const titleEl = document.getElementById('page-title');
+    titleMinY = titleEl ? titleEl.getBoundingClientRect().bottom + 20 : 100;
 
     const toolbarH = document.getElementById('toolbar').offsetHeight;
     H = Math.max(window.innerHeight - toolbarH, measureFullHeight(getObstacles()));
@@ -896,7 +911,16 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   function getObstacles() {
     const obs = [];
     shEls.forEach(el => {
-      for (const o of shapeToObs(el)) obs.push(o);
+      const r = el.getBoundingClientRect();
+      const cx = r.left, cy = r.top;
+      const cached = obsCache.get(el);
+      if (cached && Math.abs(cx - cached.x) < OBS_THRESH && Math.abs(cy - cached.y) < OBS_THRESH) {
+        for (const o of cached.obs) obs.push(o);
+      } else {
+        const freshObs = shapeToObs(el);
+        obsCache.set(el, { obs: freshObs, x: cx, y: cy });
+        for (const o of freshObs) obs.push(o);
+      }
     });
     for (const s of strokes) {
       for (const o of strokeToObs(s.pts)) obs.push(o);
@@ -1065,8 +1089,6 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
       // ── Soft boundary bounce (full screen) ─────────────────────────────
       const margin = 20;
-      const titleEl2 = document.getElementById('page-title');
-      const titleMinY = titleEl2 ? titleEl2.getBoundingClientRect().bottom + margin : margin;
       if (sw.x < margin)                 { sw.x = margin;                 sw.vx =  Math.abs(sw.vx) * 0.4; }
       if (sw.x > maxW - sw.elW - margin) { sw.x = maxW - sw.elW - margin; sw.vx = -Math.abs(sw.vx) * 0.4; }
       if (sw.y < titleMinY)              { sw.y = titleMinY;              sw.vy =  Math.abs(sw.vy) * 0.3; }
@@ -1113,14 +1135,19 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
 
   // ─── drag shapes ──────────────────────────────────────────────────────────
   let dragging = null, dox = 0, doy = 0;
+  let draggingSw = null;
+
+  const swimmerMap = new Map();
+  swimmers.forEach(sw => swimmerMap.set(sw.el, sw));
 
   function startDrag(el, clientX, clientY) {
     dragging = el;
-    const sw = swimmers.find(s => s.el === el);
-    if (sw) sw.isDragging = true;
-    // fixed-positioned elements: offset is relative to viewport
-    dox = clientX - sw.x;
-    doy = clientY - sw.y;
+    draggingSw = swimmerMap.get(el) || null;
+    if (draggingSw) {
+      draggingSw.isDragging = true;
+      dox = clientX - draggingSw.x;
+      doy = clientY - draggingSw.y;
+    }
     el.classList.add('drag');
   }
 
@@ -1130,21 +1157,21 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
     const ny = clientY - doy;
     dragging.style.left = nx + 'px';
     dragging.style.top  = ny + 'px';
-    const sw = swimmers.find(s => s.el === dragging);
-    if (sw) { sw.x = nx; sw.y = ny; }
+    if (draggingSw) { draggingSw.x = nx; draggingSw.y = ny; }
+    obsCache.delete(dragging);
     render();
   }
 
   function endDrag() {
     if (dragging) {
       dragging.classList.remove('drag');
-      const sw = swimmers.find(s => s.el === dragging);
-      if (sw) {
-        sw.vx = 0;
-        sw.vy = 0;
-        sw.isDragging = false;
+      if (draggingSw) {
+        draggingSw.vx = 0;
+        draggingSw.vy = 0;
+        draggingSw.isDragging = false;
       }
       dragging = null;
+      draggingSw = null;
     }
   }
 
