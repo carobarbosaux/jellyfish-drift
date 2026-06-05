@@ -164,9 +164,9 @@ button.active { background: rgba(168, 216, 234, 0.18); color: #d6eef7; border-co
   button { padding: 4px 10px; }
   #draw-toolbar { padding: 10px 8px; gap: 8px; }
   footer { padding: 10px 8px !important; }
-  /* Scale draggable jellyfish down on mobile */
-  .sh svg { transform: scale(0.55); transform-origin: top left; }
-  .sh { width: 99px !important; height: 198px !important; }
+  /* Scale draggable jellyfish down on mobile — transform on .sh so
+     getBoundingClientRect() returns the true visual size for obstacle math */
+  .sh { transform: scale(0.55); transform-origin: top left; }
 }
 
 #stage {
@@ -1001,10 +1001,11 @@ const TEXT = `Underwater, movement is not a command but a conversation. The curr
   // The result: rise on pulse → slow glide → gradual sink → pulse again.
   const BELL_PERIOD = 5000; // ms — must match the SVG animateTransform dur
 
+  const MOBILE_SCALE = isMobile ? 0.55 : 1;
   const swimmers = shEls.map((el, i) => {
     const svgEl = el.querySelector('svg');
-    const elW = svgEl ? parseFloat(svgEl.getAttribute('width'))  || el.offsetWidth  : el.offsetWidth;
-    const elH = svgEl ? parseFloat(svgEl.getAttribute('height')) || el.offsetHeight : el.offsetHeight;
+    const elW = (svgEl ? parseFloat(svgEl.getAttribute('width'))  || el.offsetWidth  : el.offsetWidth)  * MOBILE_SCALE;
+    const elH = (svgEl ? parseFloat(svgEl.getAttribute('height')) || el.offsetHeight : el.offsetHeight) * MOBILE_SCALE;
     return {
       el, elW, elH,
       // Positions initialized to -1 as sentinel; swimTick reads from DOM on first frame
